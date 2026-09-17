@@ -138,6 +138,14 @@ def api_history():
     return jsonify({"ok": True, "tickets": [ticket_json(t) for t in garage.history()]})
 
 
+@app.route("/api/clock")
+def api_clock_readonly():
+    """Read-only peek at the current simulated time - does NOT run the
+    nightly job (that only happens on POST /clock). Used by the UI to
+    display 'now' without side effects on every page refresh."""
+    return jsonify({"ok": True, "now": clock.now().isoformat(sep=" ", timespec="seconds")})
+
+
 # ---------- Twist 3: valet hand-off ----------
 @app.route("/api/transfer", methods=["POST"])
 def api_transfer():

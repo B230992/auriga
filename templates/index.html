@@ -271,6 +271,17 @@
     justify-self: start;
   }
   .stub .type-tag.ev { color: var(--ev-teal); border-color: rgba(79,195,184,.4); }
+  .stub .auto-tag {
+    font-size: .6rem;
+    letter-spacing: .6px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    border: 1px solid rgba(255,171,61,.4);
+    color: var(--led-amber);
+    margin-left: 6px;
+  }
   .stub .fee {
     font-family: var(--font-mono);
     font-weight: 600;
@@ -285,6 +296,21 @@
     text-align: center;
     font-family: var(--font-mono);
   }
+
+  /* ---------- sim-time strip ---------- */
+  .sim-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: .7rem;
+    color: var(--concrete);
+    margin-top: 10px;
+  }
+  .sim-strip b { color: var(--off-white); font-weight: 600; }
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .row-2 > div { min-width: 0; }
+
 </style>
 </head>
 <body>
@@ -332,6 +358,31 @@
         <input id="find-plate" placeholder="DL1AB1234" autocomplete="off">
         <button class="ghost" onclick="findCar()">Look up</button>
         <div id="find-result" class="result"></div>
+      </div>
+
+      <div class="block">
+        <h2>Valet hand-off</h2>
+        <div class="row-2">
+          <div>
+            <label>Current plate</label>
+            <input id="tr-old" placeholder="DL1AB1234" autocomplete="off">
+          </div>
+          <div>
+            <label>New plate</label>
+            <input id="tr-new" placeholder="DL9ZZ9999" autocomplete="off">
+          </div>
+        </div>
+        <button class="ghost" onclick="transferPlate()">Transfer session</button>
+        <div id="tr-result" class="result"></div>
+      </div>
+
+      <div class="block">
+        <h2>Nightly job / time control</h2>
+        <label>Advance simulated clock by (hours)</label>
+        <input id="clk-hours" placeholder="26" autocomplete="off" inputmode="decimal">
+        <button class="ghost" onclick="advanceClock()">Advance &amp; run nightly job</button>
+        <div id="clk-result" class="result"></div>
+        <div class="sim-strip">Simulated time: <b id="sim-time">—</b></div>
       </div>
     </section>
 
@@ -415,6 +466,51 @@ async function findCar() {
   }
 }
 
+async function transferPlate() {
+  const from = document.getElementById('tr-old').value.trim();
+  const to = document.getElementById('tr-new').value.trim();
+  const { ok, data } = await api('/api/transfer', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ from, to })
+  });
+  if (ok) {
+    showResult('tr-result', true, `Transferred — ticket ${data.ticket.ticket_id}\n${from.toUpperCase()} → ${data.ticket.plate}\nSpot: ${data.ticket.spot_id} (unchanged)`);
+    document.getElementById('tr-old').value = '';
+    document.getElementById('tr-new').value = '';
+  } else {
+    showResult('tr-result', false, data.error || 'Transfer failed.');
+  }
+  refreshAll();
+}
+
+async function advanceClock() {
+  const hours = parseFloat(document.getElementById('clk-hours').value);
+  if (!hours || hours <= 0) {
+    showResult('clk-result', false, 'Enter a positive number of hours.');
+    return;
+  }
+  const { ok, data } = await api('/clock', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ advance_hours: hours })
+  });
+  if (ok) {
+    const lines = data.count
+      ? [`Nightly job auto-closed ${data.count} session(s):`,
+         ...data.closed.map(c => `  ${c.plate} — ${c.spot_id} — ${money(c.fee)}`)]
+      : ['Nightly job ran — nothing over 24h to close.'];
+    showResult('clk-result', true, `Now: ${data.now}\n${lines.join('\n')}`);
+  } else {
+    showResult('clk-result', false, data.error || 'Clock advance failed.');
+  }
+  loadSimTime();
+  refreshAll();
+}
+
+async function loadSimTime() {
+  const { data } = await api('/api/clock');
+  document.getElementById('sim-time').textContent = data.now;
+}
+
 async function loadSummary() {
   const { data } = await api('/api/summary');
   const order = [
@@ -456,8 +552,8 @@ async function loadStubs() {
     <div class="stub">
       <span class="type-tag ${t.vehicle_type === 'ev' ? 'ev' : ''}">${t.vehicle_type}</span>
       <div>
-        <div class="plate">${t.plate}</div>
-        <div class="meta">${t.spot_id} · in ${t.entry_time}</div>
+        <div class="plate">${t.plate}${t.auto_closed ? '<span class="auto-tag">auto-closed</span>' : ''}</div>
+        <div class="meta">${t.spot_id} · in ${t.entry_time}${t.plate_history && t.plate_history.length ? ` · was ${t.plate_history[0]}` : ''}</div>
       </div>
       ${currentTab === 'history' ? `<div class="fee">${money(t.fee)}</div>` : `<div class="meta">active</div>`}
     </div>
@@ -468,6 +564,8 @@ function refreshAll() {
   loadSummary();
   loadStubs();
 }
+loadSimTime();
+setInterval(loadSimTime, 5000);
 refreshAll();
 </script>
 </body>
