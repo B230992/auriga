@@ -8,7 +8,7 @@ any garage configuration.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 
 class SpotType(str, Enum):
@@ -57,3 +57,15 @@ class Ticket:
     exit_time: Optional[datetime] = None
     fee: Optional[float] = None
     status: TicketStatus = TicketStatus.ACTIVE
+
+    # --- Twist 2: nightly auto-close (T2) ---
+    # Who closed this ticket: "attendant" (normal checkout) or
+    # "nightly_job" (auto-closed for exceeding the 24h threshold).
+    closed_by: Optional[str] = None
+    auto_closed: bool = False
+
+    # --- Twist 3: valet hand-off / plate transfer (T6) ---
+    # Every previous plate this ticket was ever under, oldest first.
+    # spot_id and entry_time are untouched by a transfer - only the
+    # plate key changes - so this list is purely an audit trail.
+    plate_history: List[str] = field(default_factory=list)

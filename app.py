@@ -6,19 +6,42 @@ just exposed over HTTP + a browser page instead of a terminal.
 Run:  python app.py
 Then open the forwarded port (Codespaces will prompt you), or
 http://localhost:5000 locally.
+
+The garage runs on a SimulatedClock (garage/clock.py): between calls to
+POST /clock it ticks forward exactly like a real clock, so normal
+check-in/check-out during a demo behaves normally. POST /clock lets a
+grader pin or fast-forward time exactly, which is what makes the
+nightly auto-close job (Twist 2) deterministically testable.
 """
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from garage.exceptions import GarageError
+from garage.clock import SimulatedClock
+from garage.exceptions import (
+    GarageError,
+    InvalidTransferError,
+    TicketNotFoundError,
+    VehicleAlreadyParkedError,
+)
 from garage.garage import Garage
 from garage.models import SpotType, VehicleType
 
 DEFAULT_CONFIG = Path(__file__).parent / "data" / "config.json"
+MESSY_RATES_CSV = Path(__file__).parent / "data" / "rates_messy.csv"
 
 app = Flask(__name__)
-garage = Garage.from_config(DEFAULT_CONFIG)
+
+clock = SimulatedClock()
+
+# Set USE_MESSY_RATES = True to boot the garage pricing from the cleaned
+# messy-CSV import (Twist 1) instead of data/config.json's rates.
+USE_MESSY_RATES = False
+if USE_MESSY_RATES:
+    garage = Garage.from_config_with_messy_rates(DEFAULT_CONFIG, MESSY_RATES_CSV, clock=clock)
+else:
+    garage = Garage.from_config(DEFAULT_CONFIG, clock=clock)
 
 
 def ticket_json(t):
@@ -31,6 +54,9 @@ def ticket_json(t):
         "exit_time": t.exit_time.isoformat(sep=" ", timespec="seconds") if t.exit_time else None,
         "fee": t.fee,
         "status": t.status.value,
+        "closed_by": t.closed_by,
+        "auto_closed": t.auto_closed,
+        "plate_history": t.plate_history,
     }
 
 
@@ -110,6 +136,74 @@ def api_active():
 @app.route("/api/history")
 def api_history():
     return jsonify({"ok": True, "tickets": [ticket_json(t) for t in garage.history()]})
+
+
+# ---------- Twist 3: valet hand-off ----------
+@app.route("/api/transfer", methods=["POST"])
+def api_transfer():
+    data = request.get_json(force=True) or {}
+    old_plate = (data.get("from") or "").strip()
+    new_plate = (data.get("to") or "").strip()
+    if not old_plate or not new_plate:
+        return jsonify({"ok": False, "error": "'from' and 'to' plates are required"}), 400
+    try:
+        ticket = garage.transfer_plate(old_plate, new_plate)
+        return jsonify({"ok": True, "ticket": ticket_json(ticket)})
+    except TicketNotFoundError as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
+    except InvalidTransferError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except VehicleAlreadyParkedError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+
+
+# ---------- Twist 2: nightly auto-close, graded via POST /clock ----------
+@app.route("/clock", methods=["POST"])
+def api_clock():
+    """
+    Body: {"now": "<ISO8601>"}  -> pin the clock to an exact instant, OR
+          {"advance_hours": N}  -> fast-forward by N hours (float ok)
+
+    Either way, immediately runs the nightly auto-close job at the new
+    "now" and returns what it closed. Idempotent: posting the same "now"
+    twice (or a `now` <= the last one) closes nothing the second time,
+    since an already-closed ticket is no longer active.
+    """
+    data = request.get_json(force=True) or {}
+
+    if "now" in data:
+        try:
+            new_now = datetime.fromisoformat(data["now"])
+        except (ValueError, TypeError):
+            return jsonify({"ok": False, "error": "'now' must be a valid ISO8601 timestamp"}), 400
+        clock.set(new_now)
+    elif "advance_hours" in data:
+        try:
+            hours = float(data["advance_hours"])
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "'advance_hours' must be numeric"}), 400
+        clock.advance(hours=hours)
+    else:
+        return jsonify({"ok": False, "error": "provide either 'now' (ISO8601) or 'advance_hours'"}), 400
+
+    current_now = clock.now()
+    results = garage.run_nightly_job(now=current_now)
+
+    closed = [{
+        "plate": r.ticket.plate,
+        "spot_id": r.ticket.spot_id,
+        "entry_time": r.ticket.entry_time.isoformat(sep=" ", timespec="seconds"),
+        "exit_time": r.ticket.exit_time.isoformat(sep=" ", timespec="seconds"),
+        "duration_minutes": round(r.duration_minutes, 1),
+        "fee": r.fee,
+    } for r in results]
+
+    return jsonify({
+        "ok": True,
+        "now": current_now.isoformat(sep=" ", timespec="seconds"),
+        "closed": closed,
+        "count": len(closed),
+    })
 
 
 if __name__ == "__main__":

@@ -4,6 +4,11 @@ Public facade the attendant (or any front-end - CLI, API, UI) talks to.
 Everything that makes this work for "any garage, not one" lives in
 `from_config`: number of levels, how many spots of each type per level,
 and the rate card per spot type are all data, not code.
+
+All timestamps flow through a single injected `clock` (see clock.py) so
+that check-in/out, the nightly auto-close job, and the messy-rate-card
+import all agree on "now" - and so a grader can control time exactly via
+POST /clock without the rest of the code ever calling datetime.now().
 """
 import json
 from dataclasses import dataclass
@@ -11,11 +16,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from .exceptions import GarageFullError
+from .clock import Clock, SystemClock
+from .exceptions import GarageFullError, TicketNotFoundError
 from .models import Spot, SpotType, Ticket, VehicleType
 from .pricing import PricingEngine, RateCard
+from .rate_import import ImportReport, load_rate_cards
 from .spot_manager import SpotManager
 from .ticket_manager import TicketManager
+
+DEFAULT_AUTO_CLOSE_THRESHOLD_HOURS = 24
 
 
 @dataclass
@@ -32,14 +41,24 @@ class CheckOutResult:
 
 
 class Garage:
-    def __init__(self, spot_manager: SpotManager, pricing_engine: PricingEngine):
+    def __init__(
+        self,
+        spot_manager: SpotManager,
+        pricing_engine: PricingEngine,
+        clock: Optional[Clock] = None,
+    ):
         self.spot_manager = spot_manager
         self.pricing_engine = pricing_engine
-        self.ticket_manager = TicketManager()
+        self.clock = clock or SystemClock()
+        self.ticket_manager = TicketManager(clock=self.clock)
+        # Populated by from_config_with_messy_rates(); None for a normal
+        # from_config() build. Kept around so a front-end can show the
+        # cleaning audit trail (see cli.py `rates` / app.py /api/rate-import-report).
+        self.last_rate_import_report: Optional[ImportReport] = None
 
     # ---------- construction ----------
     @classmethod
-    def from_config(cls, config: Union[str, Path, dict]) -> "Garage":
+    def from_config(cls, config: Union[str, Path, dict], clock: Optional[Clock] = None) -> "Garage":
         """Build a Garage from a JSON config file/dict, e.g.:
 
         {
@@ -52,10 +71,48 @@ class Garage:
           }
         }
         """
+        config = cls._load_config_dict(config)
+        spot_manager = cls._build_spot_manager(config)
+
+        rates: Dict[SpotType, RateCard] = {
+            SpotType(type_name): RateCard(**rate)
+            for type_name, rate in config["rates"].items()
+        }
+        pricing_engine = PricingEngine(rates)
+        return cls(spot_manager, pricing_engine, clock=clock)
+
+    @classmethod
+    def from_config_with_messy_rates(
+        cls,
+        layout_config: Union[str, Path, dict],
+        rates_csv_path: Union[str, Path],
+        clock: Optional[Clock] = None,
+    ) -> "Garage":
+        """
+        Twist 1 (T4): same garage layout as from_config, but the rate
+        card is sourced from a messy CSV export and cleaned first (see
+        rate_import.py). The cleaning audit trail is kept on
+        `garage.last_rate_import_report` for inspection/printing.
+        """
+        config = cls._load_config_dict(layout_config)
+        spot_manager = cls._build_spot_manager(config)
+
+        rates, report = load_rate_cards(rates_csv_path)
+        pricing_engine = PricingEngine(rates)
+
+        garage = cls(spot_manager, pricing_engine, clock=clock)
+        garage.last_rate_import_report = report
+        return garage
+
+    @staticmethod
+    def _load_config_dict(config: Union[str, Path, dict]) -> dict:
         if isinstance(config, (str, Path)):
             with open(config, "r") as f:
-                config = json.load(f)
+                return json.load(f)
+        return config
 
+    @staticmethod
+    def _build_spot_manager(config: dict) -> SpotManager:
         spot_manager = SpotManager()
         counter = 1
         for level in range(1, config["levels"] + 1):
@@ -67,13 +124,7 @@ class Garage:
                              level=level, spot_type=spot_type)
                     )
                     counter += 1
-
-        rates: Dict[SpotType, RateCard] = {
-            SpotType(type_name): RateCard(**rate)
-            for type_name, rate in config["rates"].items()
-        }
-        pricing_engine = PricingEngine(rates)
-        return cls(spot_manager, pricing_engine)
+        return spot_manager
 
     # ---------- attendant operations ----------
     def check_in(
@@ -105,10 +156,9 @@ class Garage:
     ) -> CheckOutResult:
         active = self.ticket_manager.find_active_by_plate(plate)
         if active is None:
-            from .exceptions import TicketNotFoundError
             raise TicketNotFoundError(f"No active ticket for plate {plate}")
 
-        exit_time = exit_time or datetime.now()
+        exit_time = exit_time or self.clock.now()
         spot = self.spot_manager.get_spot(active.spot_id)
         fee = self.pricing_engine.calculate_fee(active.entry_time, exit_time, spot.spot_type)
 
@@ -117,6 +167,47 @@ class Garage:
 
         duration_minutes = (exit_time - ticket.entry_time).total_seconds() / 60
         return CheckOutResult(ticket=ticket, fee=fee, duration_minutes=duration_minutes)
+
+    # ---------- Twist 3: valet hand-off ----------
+    def transfer_plate(self, old_plate: str, new_plate: str) -> Ticket:
+        """
+        Move an OPEN session to a different plate. Spot and entry time
+        carry over untouched - only ticket_manager's plate index changes -
+        so the spot manager is never involved and never needs to know a
+        transfer happened at all.
+        """
+        return self.ticket_manager.transfer_plate(old_plate, new_plate)
+
+    # ---------- Twist 2: nightly auto-close ----------
+    def run_nightly_job(
+        self,
+        now: Optional[datetime] = None,
+        threshold_hours: float = DEFAULT_AUTO_CLOSE_THRESHOLD_HOURS,
+    ) -> List[CheckOutResult]:
+        """
+        Auto-closes and bills any session parked >= threshold_hours as of
+        `now` (defaults to the garage's own clock). Billed through the
+        exact same PricingEngine as a normal checkout, so a multi-day
+        overstay is capped/tiered identically either way.
+
+        Idempotent: a ticket that's already closed is no longer in
+        active_tickets_over(), so calling this again for the same (or an
+        earlier) `now` closes nothing further.
+        """
+        now = now or self.clock.now()
+        results: List[CheckOutResult] = []
+
+        for ticket in self.ticket_manager.active_tickets_over(threshold_hours, now):
+            spot = self.spot_manager.get_spot(ticket.spot_id)
+            fee = self.pricing_engine.calculate_fee(ticket.entry_time, now, spot.spot_type)
+            closed = self.ticket_manager.close_ticket(
+                ticket.plate, fee=fee, exit_time=now, closed_by="nightly_job",
+            )
+            self.spot_manager.free_spot(spot.spot_id)
+            duration_minutes = (now - closed.entry_time).total_seconds() / 60
+            results.append(CheckOutResult(ticket=closed, fee=fee, duration_minutes=duration_minutes))
+
+        return results
 
     # ---------- driver / attendant queries ----------
     def is_spot_type_available(self, spot_type: SpotType) -> bool:

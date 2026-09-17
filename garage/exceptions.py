@@ -20,3 +20,11 @@ class VehicleAlreadyParkedError(GarageError):
 
 class TicketNotFoundError(GarageError):
     """No active ticket exists for the given plate / ticket id."""
+
+
+class InvalidTransferError(GarageError):
+    """Raised for a malformed valet hand-off request (blank/same plate)."""
+
+
+class RateCardImportError(GarageError):
+    """Raised when a rate card file/source can't be cleaned into usable rates."""
