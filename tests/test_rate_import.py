@@ -76,10 +76,30 @@ def test_negative_rate_dropped():
 
 
 def test_bom_on_header_does_not_break_parsing():
-    with open(MESSY_CSV, "rb") as f:
-        assert f.read(3) == b"\xef\xbb\xbf"  # confirm the fixture really has a BOM
-    rates, _ = load_rate_cards(MESSY_CSV)  # must not raise
-    assert len(rates) == 3
+    """
+    Build our own BOM'd fixture rather than trusting the shipped
+    data/rates_messy.csv to still have its BOM byte after a git
+    checkout or an editor re-save - both commonly normalize files to
+    UTF-8 *without* BOM, which would make this test fragile for a
+    reason that has nothing to do with the parser.
+    """
+    import tempfile, os
+    content = (
+        "Spot Type,First Hour,Additional Hour,Daily Cap\n"
+        "Compact,20,10,120\n"
+        "Standard,30,15,150\n"
+        "EV,40,20,200\n"
+    )
+    with tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False) as f:
+        f.write(b"\xef\xbb\xbf" + content.encode("utf-8"))
+        path = f.name
+    try:
+        with open(path, "rb") as f:
+            assert f.read(3) == b"\xef\xbb\xbf"  # confirm our own fixture really has the BOM
+        rates, _ = load_rate_cards(path)  # must not raise
+        assert len(rates) == 3
+    finally:
+        os.unlink(path)
 
 
 def test_row_counts_are_consistent():
