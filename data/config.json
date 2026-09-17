@@ -1,0 +1,13 @@
+{
+  "levels": 3,
+  "spots_per_level": {
+    "compact": 10,
+    "standard": 15,
+    "ev": 5
+  },
+  "rates": {
+    "compact":  {"first_hour": 20, "additional_hour": 10, "daily_cap": 120},
+    "standard": {"first_hour": 30, "additional_hour": 15, "daily_cap": 150},
+    "ev":       {"first_hour": 40, "additional_hour": 20, "daily_cap": 200}
+  }
+}

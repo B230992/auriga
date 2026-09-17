@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Garage Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --asphalt-900: #121317;
+    --asphalt-700: #1b1d22;
+    --asphalt-600: #24262c;
+    --hairline: #33363d;
+    --concrete: #8c919b;
+    --off-white: #edeef1;
+    --paint-yellow: #f2c14e;
+    --led-amber: #ffab3d;
+    --signal-green: #5fc584;
+    --signal-red: #e2574c;
+    --ev-teal: #4fc3b8;
+    --font-display: 'Space Grotesk', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--asphalt-900);
+    color: var(--off-white);
+    font-family: var(--font-display);
+    min-height: 100vh;
+  }
+  ::selection { background: var(--paint-yellow); color: #14161a; }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .topbar .mark {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .topbar .mark .chip {
+    width: 10px; height: 10px; border-radius: 2px;
+    background: var(--paint-yellow);
+  }
+  .topbar h1 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: .2px;
+  }
+  .topbar .clock {
+    font-family: var(--font-mono);
+    color: var(--concrete);
+    font-size: .82rem;
+  }
+
+  /* ---------- entrance signage board (the hero) ---------- */
+  .signage {
+    margin: 28px 32px 0;
+    background: linear-gradient(180deg, #0d0e11, #17181c);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding: 22px 28px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .signage::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(
+      transparent 0, transparent 2px, rgba(255,255,255,.012) 3px, transparent 4px
+    );
+    pointer-events: none;
+  }
+  .signage-label {
+    font-family: var(--font-mono);
+    font-size: .68rem;
+    letter-spacing: 2px;
+    color: var(--concrete);
+    margin-bottom: 14px;
+  }
+  .digit-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+  .digit-cell {
+    text-align: center;
+    padding: 10px 8px 12px;
+    border-radius: 4px;
+    background: rgba(0,0,0,.25);
+  }
+  .digit-cell .n {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: clamp(2.4rem, 6vw, 3.6rem);
+    line-height: 1;
+    color: var(--led-amber);
+    text-shadow: 0 0 14px rgba(255,171,61,.55), 0 0 2px rgba(255,171,61,.9);
+    font-variant-numeric: tabular-nums;
+    transition: opacity .15s ease;
+  }
+  .digit-cell.ev .n { color: var(--ev-teal); text-shadow: 0 0 14px rgba(79,195,184,.55), 0 0 2px rgba(79,195,184,.9); }
+  .digit-cell.zero .n { color: var(--signal-red); text-shadow: 0 0 14px rgba(226,87,76,.5), 0 0 2px rgba(226,87,76,.9); }
+  .digit-cell .lbl {
+    margin-top: 6px;
+    font-size: .68rem;
+    letter-spacing: 1.5px;
+    color: var(--concrete);
+  }
+  .digit-cell .lbl small { display: block; font-size: .62rem; opacity: .7; margin-top: 2px; letter-spacing: .5px; }
+
+  /* ---------- layout ---------- */
+  main {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 22px;
+    padding: 22px 32px 48px;
+    max-width: 1240px;
+    margin: 0 auto;
+    align-items: start;
+  }
+  @media (max-width: 880px) {
+    main { grid-template-columns: 1fr; }
+    .digit-row { grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  }
+
+  .desk {
+    background: var(--asphalt-700);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding: 22px;
+  }
+  .desk h2 {
+    margin: 0;
+    font-size: .78rem;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    color: var(--concrete);
+    text-transform: uppercase;
+  }
+  .desk .block + .block { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--hairline); }
+
+  label {
+    display: block;
+    font-size: .74rem;
+    color: var(--concrete);
+    margin: 12px 0 5px;
+  }
+  input, select {
+    width: 100%;
+    padding: 10px 11px;
+    background: var(--asphalt-900);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    color: var(--off-white);
+    font-family: var(--font-mono);
+    font-size: .92rem;
+  }
+  input::placeholder { color: #565a63; }
+  input:focus, select:focus { outline: none; border-color: var(--paint-yellow); }
+
+  button {
+    margin-top: 16px;
+    width: 100%;
+    padding: 11px;
+    border: none;
+    border-radius: 4px;
+    background: var(--paint-yellow);
+    color: #17181c;
+    font-weight: 600;
+    font-family: var(--font-display);
+    font-size: .86rem;
+    cursor: pointer;
+    letter-spacing: .2px;
+  }
+  button:hover { filter: brightness(1.06); }
+  button:active { transform: translateY(1px); }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--off-white);
+  }
+  button.ghost:hover { border-color: var(--concrete); filter: none; }
+
+  .result {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    display: none;
+  }
+  .result.ok  { display: block; background: rgba(95,197,132,.10); border: 1px solid rgba(95,197,132,.35); color: var(--signal-green); }
+  .result.err { display: block; background: rgba(226,87,76,.10); border: 1px solid rgba(226,87,76,.35); color: var(--signal-red); }
+
+  /* ---------- right column ---------- */
+  .board {
+    background: var(--asphalt-700);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding: 20px 22px 22px;
+  }
+  .board-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .tabs { display: flex; gap: 4px; background: var(--asphalt-900); padding: 3px; border-radius: 6px; border: 1px solid var(--hairline); }
+  .tabs button {
+    margin: 0; width: auto; padding: 6px 14px; font-size: .74rem;
+    background: transparent; border: none; color: var(--concrete); border-radius: 4px;
+    font-family: var(--font-display); font-weight: 600;
+  }
+  .tabs button.active { background: var(--asphalt-600); color: var(--off-white); }
+  .tabs button:hover:not(.active) { filter: none; color: var(--off-white); }
+  .count-pill {
+    font-family: var(--font-mono); font-size: .74rem; color: var(--concrete);
+  }
+
+  .stub-grid { display: grid; gap: 10px; }
+  .stub {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 14px;
+    align-items: center;
+    background: var(--asphalt-900);
+    border: 1px solid var(--hairline);
+    border-radius: 5px;
+    padding: 13px 16px;
+    position: relative;
+  }
+  .stub::before {
+    content: "";
+    position: absolute; left: -1px; top: 50%; transform: translateY(-50%);
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--asphalt-900); border: 1px solid var(--hairline);
+  }
+  .stub .plate {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: .92rem;
+    letter-spacing: .5px;
+  }
+  .stub .meta {
+    font-size: .72rem;
+    color: var(--concrete);
+    margin-top: 3px;
+    font-family: var(--font-mono);
+  }
+  .stub .type-tag {
+    font-size: .64rem;
+    letter-spacing: .6px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    border: 1px solid var(--hairline);
+    color: var(--concrete);
+    justify-self: start;
+  }
+  .stub .type-tag.ev { color: var(--ev-teal); border-color: rgba(79,195,184,.4); }
+  .stub .fee {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--signal-green);
+    font-size: .9rem;
+    text-align: right;
+  }
+  .empty {
+    color: var(--concrete);
+    padding: 28px 0;
+    font-size: .85rem;
+    text-align: center;
+    font-family: var(--font-mono);
+  }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="mark">
+      <div class="chip"></div>
+      <h1>Garage Desk</h1>
+    </div>
+    <div class="clock" id="clock"></div>
+  </div>
+
+  <div class="signage">
+    <div class="signage-label">SPACES AVAILABLE</div>
+    <div class="digit-row" id="digit-row"></div>
+  </div>
+
+  <main>
+    <section class="desk">
+      <div class="block">
+        <h2>Check in</h2>
+        <label>License plate</label>
+        <input id="in-plate" placeholder="DL1AB1234" autocomplete="off">
+        <label>Vehicle type</label>
+        <select id="in-type">
+          <option value="compact">Compact</option>
+          <option value="standard">Standard</option>
+          <option value="ev">EV — needs charger</option>
+        </select>
+        <button onclick="checkIn()">Check in</button>
+        <div id="in-result" class="result"></div>
+      </div>
+
+      <div class="block">
+        <h2>Check out</h2>
+        <label>License plate</label>
+        <input id="out-plate" placeholder="DL1AB1234" autocomplete="off">
+        <button onclick="checkOut()">Check out &amp; bill</button>
+        <div id="out-result" class="result"></div>
+      </div>
+
+      <div class="block">
+        <h2>Find a car</h2>
+        <label>License plate</label>
+        <input id="find-plate" placeholder="DL1AB1234" autocomplete="off">
+        <button class="ghost" onclick="findCar()">Look up</button>
+        <div id="find-result" class="result"></div>
+      </div>
+    </section>
+
+    <section class="board">
+      <div class="board-head">
+        <div class="tabs">
+          <button id="tab-active" class="active" onclick="showTab('active')">Parked now</button>
+          <button id="tab-history" onclick="showTab('history')">Today's history</button>
+        </div>
+        <div class="count-pill" id="count-pill"></div>
+      </div>
+      <div id="stub-wrap" class="stub-grid"></div>
+    </section>
+  </main>
+
+<script>
+const money = (x) => `Rs.${Number(x).toFixed(2)}`;
+let currentTab = 'active';
+
+function tickClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) +
+    '  ' + now.toLocaleTimeString();
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const data = await res.json();
+  return { ok: res.ok, data };
+}
+
+function showResult(elId, ok, text) {
+  const el = document.getElementById(elId);
+  el.className = 'result ' + (ok ? 'ok' : 'err');
+  el.textContent = text;
+}
+
+async function checkIn() {
+  const plate = document.getElementById('in-plate').value.trim();
+  const vehicle_type = document.getElementById('in-type').value;
+  const { ok, data } = await api('/api/checkin', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ plate, vehicle_type })
+  });
+  if (ok) {
+    showResult('in-result', true, `Checked in — ticket ${data.ticket.ticket_id}\nAssigned spot: ${data.spot_id}`);
+    document.getElementById('in-plate').value = '';
+  } else {
+    showResult('in-result', false, data.error || 'Check-in failed.');
+  }
+  refreshAll();
+}
+
+async function checkOut() {
+  const plate = document.getElementById('out-plate').value.trim();
+  const { ok, data } = await api('/api/checkout', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ plate })
+  });
+  if (ok) {
+    showResult('out-result', true, `Checked out — ${data.duration_minutes} min parked\nFee: ${money(data.fee)}`);
+    document.getElementById('out-plate').value = '';
+  } else {
+    showResult('out-result', false, data.error || 'Check-out failed.');
+  }
+  refreshAll();
+}
+
+async function findCar() {
+  const plate = document.getElementById('find-plate').value.trim();
+  if (!plate) return;
+  const { data } = await api(`/api/status/${encodeURIComponent(plate)}`);
+  if (data.parked) {
+    const t = data.ticket;
+    showResult('find-result', true, `Parked in ${t.spot_id}\nEntry: ${t.entry_time}\nType: ${t.vehicle_type}`);
+  } else {
+    showResult('find-result', false, 'Not currently parked here.');
+  }
+}
+
+async function loadSummary() {
+  const { data } = await api('/api/summary');
+  const order = [
+    { key: 'compact', label: 'Compact' },
+    { key: 'standard', label: 'Standard' },
+    { key: 'ev', label: 'EV', note: 'Charger', cls: 'ev' },
+  ];
+  const row = document.getElementById('digit-row');
+  row.innerHTML = order.map(o => {
+    const count = data.summary[o.key];
+    const cellCls = count === 0 ? 'zero' : (o.cls || '');
+    return `
+      <div class="digit-cell ${cellCls}">
+        <div class="n">${String(count).padStart(2, '0')}</div>
+        <div class="lbl">${o.label}${o.note ? `<small>${o.note}</small>` : ''}</div>
+      </div>`;
+  }).join('');
+}
+
+function showTab(tab) {
+  currentTab = tab;
+  document.getElementById('tab-active').classList.toggle('active', tab === 'active');
+  document.getElementById('tab-history').classList.toggle('active', tab === 'history');
+  loadStubs();
+}
+
+async function loadStubs() {
+  const endpoint = currentTab === 'active' ? '/api/active' : '/api/history';
+  const { data } = await api(endpoint);
+  const wrap = document.getElementById('stub-wrap');
+  document.getElementById('count-pill').textContent =
+    `${data.tickets.length} ${data.tickets.length === 1 ? 'car' : 'cars'}`;
+
+  if (!data.tickets.length) {
+    wrap.innerHTML = `<div class="empty">${currentTab === 'active' ? 'No cars currently parked.' : 'No cars checked out yet today.'}</div>`;
+    return;
+  }
+  wrap.innerHTML = data.tickets.map(t => `
+    <div class="stub">
+      <span class="type-tag ${t.vehicle_type === 'ev' ? 'ev' : ''}">${t.vehicle_type}</span>
+      <div>
+        <div class="plate">${t.plate}</div>
+        <div class="meta">${t.spot_id} · in ${t.entry_time}</div>
+      </div>
+      ${currentTab === 'history' ? `<div class="fee">${money(t.fee)}</div>` : `<div class="meta">active</div>`}
+    </div>
+  `).join('');
+}
+
+function refreshAll() {
+  loadSummary();
+  loadStubs();
+}
+refreshAll();
+</script>
+</body>
+</html>
